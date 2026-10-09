@@ -3,12 +3,13 @@ import type {
   Topic,
   TopicCreateRequest,
   TopicStatus,
+  TopicTranslation,
   TranslateRequest,
   TranslationRequest,
 } from './types';
 
 export const topicsApi = {
-  list: (limit: number, offset: number, lang?: string, status?: TopicStatus | '') =>
+  list: (limit: number, offset: number, lang?: string, status?: TopicStatus | '', sort: 'newest' | 'likes' = 'newest') =>
     client
       .get<Topic[]>('/topics', {
         params: {
@@ -16,6 +17,7 @@ export const topicsApi = {
           offset,
           ...(lang ? { lang } : {}),
           ...(status ? { status } : {}),
+          sort,
         },
       })
       .then((r) => r.data),
@@ -28,6 +30,9 @@ export const topicsApi = {
 
   addTranslation: (id: string, lang: string, body: TranslationRequest) =>
     client.put(`/topics/${id}/translations/${lang}`, body).then((r) => r.data),
+
+  previewTranslation: (id: string, lang: string) =>
+    client.post<TopicTranslation>(`/topics/${id}/translations/${lang}/preview`).then((r) => r.data),
 
   translate: (id: string, body: TranslateRequest) =>
     client.post(`/topics/${id}/translate`, body).then((r) => r.data),

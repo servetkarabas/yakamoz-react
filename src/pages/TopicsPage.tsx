@@ -34,7 +34,7 @@ import TranslateIcon from '@mui/icons-material/Translate';
 import { authorsApi } from '../api/authors';
 import { topicsApi } from '../api/topics';
 import type { Author, Topic, TopicStatus } from '../api/types';
-import { LANGUAGES, LanguageSelect, StatusChip, formatDate } from '../components/common';
+import { LANGUAGES, LanguageSelect, StatusChip, formatDate, useLanguage } from '../components/common';
 import { useFeedback } from '../components/feedback';
 
 interface TopicForm {
@@ -52,11 +52,12 @@ export default function TopicsPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
-  const [langFilter, setLangFilter] = useState('');
+  const { language: langFilter } = useLanguage();
   const [statusFilter, setStatusFilter] = useState<TopicStatus | ''>('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<TopicForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [previewingTranslation, setPreviewingTranslation] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; topic: Topic } | null>(null);
   const [translation, setTranslation] = useState<{ topic: Topic; lang: string; title: string; description: string } | null>(null);
   const [translate, setTranslate] = useState<{ topic: Topic; targets: string[]; force: boolean } | null>(null);
@@ -82,6 +83,10 @@ export default function TopicsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [langFilter]);
 
   useEffect(() => {
     authorsApi
@@ -132,6 +137,20 @@ export default function TopicsPage() {
     }
   };
 
+  const previewEnglishTranslation = async () => {
+    if (!translation) return;
+    setPreviewingTranslation(true);
+    try {
+      const preview = await topicsApi.previewTranslation(translation.topic.id, translation.lang);
+      setTranslation({ ...translation, title: preview.title, description: preview.description });
+      showSuccess('English translation generated. Review it before saving.');
+    } catch (e) {
+      showError(e);
+    } finally {
+      setPreviewingTranslation(false);
+    }
+  };
+
   const runTranslate = async () => {
     if (!translate) return;
     setSaving(true);
@@ -156,9 +175,6 @@ export default function TopicsPage() {
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           Topics
         </Typography>
-        <Box sx={{ width: 140 }}>
-          <LanguageSelect value={langFilter} onChange={(v) => { setLangFilter(v); setPage(0); }} allowEmpty />
-        </Box>
         <TextField
           select
           label="Status"
@@ -346,17 +362,27 @@ export default function TopicsPage() {
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <LanguageSelect
             value={translation?.lang ?? 'en'}
-            onChange={(v) => translation && setTranslation({ ...translation, lang: v })}
+            onChange={(v) => translation && setTranslation({ ...translation, lang: v, title: '', description: '' })}
             required
           />
+          {translation?.lang === 'en' && translation.topic.original_language !== 'en' && (
+            <Button
+              variant="outlined"
+              startIcon={<TranslateIcon />}
+              onClick={previewEnglishTranslation}
+              disabled={saving || previewingTranslation}
+            >
+              {previewingTranslation ? 'Translating…' : 'Translate to English'}
+            </Button>
+          )}
           <TextField
-            label="Title"
+            label={translation?.lang === 'en' ? 'Title (English)' : 'Title'}
             value={translation?.title ?? ''}
             onChange={(e) => translation && setTranslation({ ...translation, title: e.target.value })}
             required
           />
           <TextField
-            label="Description"
+            label={translation?.lang === 'en' ? 'Description (English)' : 'Description'}
             value={translation?.description ?? ''}
             onChange={(e) => translation && setTranslation({ ...translation, description: e.target.value })}
             multiline

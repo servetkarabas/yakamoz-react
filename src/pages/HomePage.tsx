@@ -20,14 +20,50 @@ import {
   Typography,
 } from '@mui/material';
 import AddCommentIcon from '@mui/icons-material/AddComment';
+import ThumbDownIcon from '@mui/icons-material/ThumbDown';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import { useAuth } from '../components/auth';
 import { topicsApi } from '../api/topics';
 import { authorsApi } from '../api/authors';
 import { commentsApi } from '../api/comments';
-import type { Author, Comment, Topic } from '../api/types';
-import { LanguageSelect, StatusChip, formatDate } from '../components/common';
+import { reactionsApi } from '../api/reactions';
+import type { Author, Comment, ReactionKind, ReactionSummary, Topic } from '../api/types';
+import { LanguageSelect, StatusChip, formatDate, useLanguage } from '../components/common';
 import { useFeedback } from '../components/feedback';
 
 const PAGE_SIZE = 50;
+
+function descriptionPreview(description: string): string {
+  const characters = Array.from(description.trim());
+  return characters.length > 80 ? `${characters.slice(0, 77).join('').trimEnd()}...` : characters.join('');
+}
+
+function ReactionControls({ summary, onReact }: { summary?: ReactionSummary; onReact: (value: ReactionKind) => void }) {
+  return (
+    <Stack direction="row" spacing={0} alignItems="center">
+      <Button
+        size="small"
+        color={summary?.user_reaction === 'like' ? 'primary' : 'inherit'}
+        variant={summary?.user_reaction === 'like' ? 'contained' : 'text'}
+        startIcon={<ThumbUpIcon fontSize="small" />}
+        onClick={() => onReact('like')}
+        aria-label={`Like, ${summary?.likes ?? 0}`}
+      >
+        {summary?.likes ?? 0}
+      </Button>
+      <Button
+        size="small"
+        color={summary?.user_reaction === 'dislike' ? 'primary' : 'inherit'}
+        variant={summary?.user_reaction === 'dislike' ? 'contained' : 'text'}
+        startIcon={<ThumbDownIcon fontSize="small" />}
+        onClick={() => onReact('dislike')}
+        aria-label={`Dislike, ${summary?.dislikes ?? 0}`}
+      >
+        {summary?.dislikes ?? 0}
+      </Button>
+    </Stack>
+  );
+}
 
 interface CommentForm {
   author_id: string;
@@ -40,10 +76,15 @@ const emptyComment: CommentForm = { author_id: '', language: 'tr', body: '' };
 export default function HomePage() {
   const { id } = useParams<{ id: string }>();
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [topicReactions, setTopicReactions] = useState<Record<string, ReactionSummary>>({});
+  const [commentReactions, setCommentReactions] = useState<Record<string, ReactionSummary>>({});
+  const [sortBy, setSortBy] = useState<'newest' | 'likes'>('newest');
   const [authors, setAuthors] = useState<Author[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [langFilter, setLangFilter] = useState('');
+  const { language: langFilter } = useLanguage();
+  const { user } = useAuth();
   const [selected, setSelected] = useState<Topic | null>(null);
   const [loadingTopic, setLoadingTopic] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -57,28 +98,60 @@ export default function HomePage() {
     return map;
   }, [authors]);
 
+  const visibleTopics = useMemo(
+    () =>
+      [...topics].sort((a, b) => {
+        if (sortBy === 'likes') {
+          const likeDifference = (topicReactions[b.id]?.likes ?? 0) - (topicReactions[a.id]?.likes ?? 0);
+          if (likeDifference) return likeDifference;
+        }
+        return Date.parse(b.created_at) - Date.parse(a.created_at);
+      }),
+    [topics, sortBy, topicReactions],
+  );
+
   const loadTopics = useCallback(
     async (lang: string) => {
       setLoadingList(true);
       try {
-        const first = await topicsApi.list(PAGE_SIZE, 0, lang || undefined);
+        const first = await topicsApi.list(PAGE_SIZE, 0, lang || undefined, 'published', sortBy);
         setTopics(first);
+        setCommentCounts({});
+        setTopicReactions({});
         setHasMore(first.length === PAGE_SIZE);
+        const topicIds = first.map((topic) => topic.id);
+        const [counts, reactions] = await Promise.all([
+          commentsApi.counts(topicIds),
+          reactionsApi.list('topic', topicIds),
+        ]);
+        setCommentCounts(counts);
+        setTopicReactions(reactions);
       } catch (e) {
         showError(e);
       } finally {
         setLoadingList(false);
       }
     },
-    [showError],
+    [showError, sortBy],
   );
 
   const loadMore = async () => {
     setLoadingList(true);
     try {
-      const next = await topicsApi.list(PAGE_SIZE, topics.length, langFilter || undefined);
+      const next = await topicsApi.list(PAGE_SIZE, topics.length, langFilter || undefined, 'published', sortBy);
       setTopics((prev) => [...prev, ...next]);
       setHasMore(next.length === PAGE_SIZE);
+      const nextIds = next.map((topic) => topic.id);
+      try {
+        const [nextCounts, nextReactions] = await Promise.all([
+          commentsApi.counts(nextIds),
+          reactionsApi.list('topic', nextIds),
+        ]);
+        setCommentCounts((prev) => ({ ...prev, ...nextCounts }));
+        setTopicReactions((prev) => ({ ...prev, ...nextReactions }));
+      } catch (e) {
+        showError(e);
+      }
     } catch (e) {
       showError(e);
     } finally {
@@ -89,13 +162,35 @@ export default function HomePage() {
   const loadComments = useCallback(
     async (topicId: string) => {
       try {
-        setComments(await commentsApi.list(topicId, 100, 0));
+        const values = await commentsApi.list(topicId, 100, 0);
+        setComments(values);
+        setCommentReactions(await reactionsApi.list('comment', values.map((comment) => comment.id)));
       } catch (e) {
         showError(e);
       }
     },
     [showError],
   );
+
+  const reactToTopic = async (topicId: string, reaction: ReactionKind) => {
+    try {
+      const current = topicReactions[topicId]?.user_reaction;
+      const summary = await reactionsApi.set('topic', topicId, current === reaction ? '' : reaction);
+      setTopicReactions((prev) => ({ ...prev, [topicId]: summary }));
+    } catch (e) {
+      showError(e);
+    }
+  };
+
+  const reactToComment = async (commentId: string, reaction: ReactionKind) => {
+    try {
+      const current = commentReactions[commentId]?.user_reaction;
+      const summary = await reactionsApi.set('comment', commentId, current === reaction ? '' : reaction);
+      setCommentReactions((prev) => ({ ...prev, [commentId]: summary }));
+    } catch (e) {
+      showError(e);
+    }
+  };
 
   useEffect(() => {
     loadTopics(langFilter);
@@ -109,25 +204,29 @@ export default function HomePage() {
     if (!id) {
       setSelected(null);
       setComments([]);
+      setCommentReactions({});
       return;
     }
+    setComments([]);
+    setCommentReactions({});
     setLoadingTopic(true);
     topicsApi
       .getById(id, langFilter || undefined)
-      .then(setSelected)
+      .then((topic) => setSelected(topic.status === 'published' || user ? topic : null))
       .catch((e) => {
         setSelected(null);
         showError(e);
       })
       .finally(() => setLoadingTopic(false));
     loadComments(id);
-  }, [id, langFilter, showError, loadComments]);
+  }, [id, langFilter, user, showError, loadComments]);
 
   const saveComment = async () => {
-    if (!selected || !commentForm) return;
+    if (user?.role !== 'author' || !selected || !commentForm) return;
     setSaving(true);
     try {
       await commentsApi.create({ topic_id: selected.id, ...commentForm });
+      setCommentCounts((prev) => ({ ...prev, [selected.id]: (prev[selected.id] ?? comments.length) + 1 }));
       showSuccess('Comment added');
       setCommentForm(null);
       loadComments(selected.id);
@@ -141,12 +240,21 @@ export default function HomePage() {
   return (
     <Box sx={{ display: 'flex', gap: 2, alignItems: 'stretch' }}>
       <Paper sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 140px)' }}>
-        <Box sx={{ p: 1.5 }}>
-          <LanguageSelect value={langFilter} onChange={setLangFilter} allowEmpty />
+        <Box sx={{ p: 1 }}>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Order topics by"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'newest' | 'likes')}
+          >
+            <MenuItem value="newest">Date created</MenuItem>
+            <MenuItem value="likes">Like count</MenuItem>
+          </TextField>
         </Box>
-        <Divider />
         <List dense sx={{ overflow: 'auto', flexGrow: 1 }}>
-          {topics.map((topic) => (
+          {visibleTopics.map((topic) => (
             <ListItemButton
               key={topic.id}
               component={RouterLink}
@@ -154,9 +262,9 @@ export default function HomePage() {
               selected={topic.id === id}
             >
               <ListItemText
-                primary={topic.title}
+                primary={`${topic.id === id ? topic.slug : topic.title} (${commentCounts[topic.id] ?? 0})`}
                 primaryTypographyProps={{ noWrap: true }}
-                secondary={topic.slug}
+                secondary={descriptionPreview(topic.description)}
                 secondaryTypographyProps={{ noWrap: true }}
               />
             </ListItemButton>
@@ -185,7 +293,7 @@ export default function HomePage() {
         ) : selected ? (
           <>
             <Typography variant="h4" component="h1" gutterBottom>
-              {selected.title}
+              {selected.title} ({comments.length})
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
               <StatusChip status={selected.status} />
@@ -202,19 +310,25 @@ export default function HomePage() {
             <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
               {selected.description}
             </Typography>
+            <ReactionControls
+              summary={topicReactions[selected.id]}
+              onReact={(reaction) => reactToTopic(selected.id, reaction)}
+            />
 
             <Box sx={{ display: 'flex', alignItems: 'center', mt: 4, mb: 1 }}>
               <Typography variant="h6" sx={{ flexGrow: 1 }}>
                 Comments ({comments.length})
               </Typography>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<AddCommentIcon />}
-                onClick={() => setCommentForm({ ...emptyComment, language: selected.served_language })}
-              >
-                Add comment
-              </Button>
+              {user?.role === 'author' && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AddCommentIcon />}
+                  onClick={() => setCommentForm({ ...emptyComment, language: selected.served_language })}
+                >
+                  Add comment
+                </Button>
+              )}
             </Box>
             <Divider />
             <Stack divider={<Divider />} spacing={0}>
@@ -223,10 +337,14 @@ export default function HomePage() {
                   <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                     {comment.body}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                     {authorNames.get(comment.author_id) ?? comment.author_id.slice(0, 8)} · {comment.language} ·{' '}
                     {formatDate(comment.created_at)}
                   </Typography>
+                  <ReactionControls
+                    summary={commentReactions[comment.id]}
+                    onReact={(reaction) => reactToComment(comment.id, reaction)}
+                  />
                 </Box>
               ))}
               {comments.length === 0 && (

@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  MenuItem,
   Paper,
   Table,
   TableBody,
@@ -24,7 +25,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { authorsApi } from '../api/authors';
-import type { Author } from '../api/types';
+import type { Author, AuthorRole } from '../api/types';
 import { LanguageSelect, StatusChip, formatDate } from '../components/common';
 import { useFeedback } from '../components/feedback';
 
@@ -33,9 +34,10 @@ interface AuthorForm {
   email: string;
   bio: string;
   preferred_language: string;
+  role: AuthorRole;
 }
 
-const emptyForm: AuthorForm = { nickname: '', email: '', bio: '', preferred_language: 'tr' };
+const emptyForm: AuthorForm = { nickname: '', email: '', bio: '', preferred_language: 'tr', role: 'author' };
 
 export default function AuthorsPage() {
   const [authors, setAuthors] = useState<Author[]>([]);
@@ -77,6 +79,7 @@ export default function AuthorsPage() {
       email: author.email,
       bio: author.bio,
       preferred_language: author.preferred_language,
+      role: author.role,
     });
     setDialogOpen(true);
   };
@@ -88,11 +91,12 @@ export default function AuthorsPage() {
         await authorsApi.update(editing.id, {
           bio: form.bio,
           preferred_language: form.preferred_language,
+          role: form.role,
         });
-        showSuccess('Author updated');
+        showSuccess('User updated');
       } else {
         await authorsApi.create(form);
-        showSuccess('Author created');
+        showSuccess('User created');
       }
       setDialogOpen(false);
       load();
@@ -107,7 +111,7 @@ export default function AuthorsPage() {
     if (!deleting) return;
     try {
       await authorsApi.remove(deleting.id);
-      showSuccess('Author deleted');
+      showSuccess('User deleted');
       setDeleting(null);
       load();
     } catch (e) {
@@ -119,7 +123,7 @@ export default function AuthorsPage() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Authors
+          Users
         </Typography>
         <Tooltip title="Refresh">
           <IconButton onClick={load} disabled={loading}>
@@ -127,7 +131,7 @@ export default function AuthorsPage() {
           </IconButton>
         </Tooltip>
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
-          New Author
+          New User
         </Button>
       </Box>
 
@@ -139,6 +143,7 @@ export default function AuthorsPage() {
               <TableCell>Email</TableCell>
               <TableCell>Bio</TableCell>
               <TableCell>Language</TableCell>
+              <TableCell>Role</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Created</TableCell>
               <TableCell align="right">Actions</TableCell>
@@ -153,6 +158,7 @@ export default function AuthorsPage() {
                   {author.bio}
                 </TableCell>
                 <TableCell>{author.preferred_language}</TableCell>
+                <TableCell>{author.role}</TableCell>
                 <TableCell>
                   <StatusChip status={author.status} />
                 </TableCell>
@@ -173,8 +179,8 @@ export default function AuthorsPage() {
             ))}
             {!loading && authors.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
-                  No authors found
+                <TableCell colSpan={8} align="center">
+                  No users found
                 </TableCell>
               </TableRow>
             )}
@@ -198,7 +204,7 @@ export default function AuthorsPage() {
       </TableContainer>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{editing ? `Edit ${editing.nickname}` : 'New Author'}</DialogTitle>
+        <DialogTitle>{editing ? `Edit ${editing.nickname}` : 'New User'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <TextField
             label="Nickname"
@@ -229,6 +235,17 @@ export default function AuthorsPage() {
             onChange={(v) => setForm({ ...form, preferred_language: v })}
             required
           />
+          <TextField
+            select
+            label="Role"
+            value={form.role}
+            onChange={(e) => setForm({ ...form, role: e.target.value as AuthorRole })}
+            helperText="Only one user can have the reviewer role and one the admin role."
+          >
+            <MenuItem value="author">Author</MenuItem>
+            <MenuItem value="reviewer">Reviewer</MenuItem>
+            <MenuItem value="admin">Admin</MenuItem>
+          </TextField>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
@@ -247,9 +264,9 @@ export default function AuthorsPage() {
       </Dialog>
 
       <Dialog open={deleting !== null} onClose={() => setDeleting(null)}>
-        <DialogTitle>Delete author</DialogTitle>
+        <DialogTitle>Delete user</DialogTitle>
         <DialogContent>
-          Delete author <strong>{deleting?.nickname}</strong>? This cannot be undone.
+          Delete user <strong>{deleting?.nickname}</strong>? This cannot be undone.
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleting(null)}>Cancel</Button>
