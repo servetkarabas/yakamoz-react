@@ -25,7 +25,9 @@ export function StatusChip({ status }: { status: string }) {
       ? 'success'
       : status === 'suspended' || status === 'archived'
         ? 'default'
-        : 'warning';
+        : status === 'review'
+          ? 'info'
+          : 'warning';
   return <Chip label={status} color={color} size="small" />;
 }
 
@@ -46,6 +48,20 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('language', value);
   };
   return <LanguageContext.Provider value={{ language, setLanguage }}>{children}</LanguageContext.Provider>;
+}
+
+const SearchContext = createContext<{ query: string; setQuery: (value: string) => void }>({
+  query: '',
+  setQuery: () => {},
+});
+
+export function SearchProvider({ children }: { children: ReactNode }) {
+  const [query, setQuery] = useState('');
+  return <SearchContext.Provider value={{ query, setQuery }}>{children}</SearchContext.Provider>;
+}
+
+export function useSearch() {
+  return useContext(SearchContext);
 }
 
 export function useLanguage() {

@@ -27,7 +27,7 @@ export interface AuthorUpdateRequest {
   role?: AuthorRole;
 }
 
-export type TopicStatus = 'draft' | 'published' | 'archived';
+export type TopicStatus = 'draft' | 'review' | 'published' | 'archived';
 
 export type ReactionTarget = 'topic' | 'comment';
 export type ReactionKind = 'like' | 'dislike';
@@ -56,6 +56,8 @@ export interface TopicCreateRequest {
   description: string;
   language: string;
   author_id: string;
+  title_en?: string;
+  description_en?: string;
 }
 
 export interface TopicTranslation {
@@ -82,6 +84,7 @@ export interface Comment {
   author_id: string;
   language: string;
   body: string;
+  body_en?: string;
   created_at: string;
 }
 
@@ -90,4 +93,11 @@ export interface CommentCreateRequest {
   author_id: string;
   language: string;
   body: string;
+}
+
+export interface TranslateTextRequest {
+  title: string;
+  description: string;
+  source_language: string;
+  target_language: string;
 }

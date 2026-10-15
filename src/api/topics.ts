@@ -5,11 +5,12 @@ import type {
   TopicStatus,
   TopicTranslation,
   TranslateRequest,
+  TranslateTextRequest,
   TranslationRequest,
 } from './types';
 
 export const topicsApi = {
-  list: (limit: number, offset: number, lang?: string, status?: TopicStatus | '', sort: 'newest' | 'likes' = 'newest') =>
+  list: (limit: number, offset: number, lang?: string, status?: TopicStatus | '', sort: 'newest' | 'likes' = 'newest', q?: string, authorId?: string) =>
     client
       .get<Topic[]>('/topics', {
         params: {
@@ -18,6 +19,8 @@ export const topicsApi = {
           ...(lang ? { lang } : {}),
           ...(status ? { status } : {}),
           sort,
+          ...(q ? { q } : {}),
+          ...(authorId ? { author_id: authorId } : {}),
         },
       })
       .then((r) => r.data),
@@ -34,8 +37,13 @@ export const topicsApi = {
   previewTranslation: (id: string, lang: string) =>
     client.post<TopicTranslation>(`/topics/${id}/translations/${lang}/preview`).then((r) => r.data),
 
+  translateText: (body: TranslateTextRequest) =>
+    client.post<TopicTranslation>('/topics/translate-preview', body).then((r) => r.data),
+
   translate: (id: string, body: TranslateRequest) =>
     client.post(`/topics/${id}/translate`, body).then((r) => r.data),
+
+  submitForReview: (id: string) => client.post(`/topics/${id}/review`).then((r) => r.data),
 
   publish: (id: string) => client.post(`/topics/${id}/publish`).then((r) => r.data),
 };

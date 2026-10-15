@@ -28,13 +28,14 @@ import { authorsApi } from '../api/authors';
 import { commentsApi } from '../api/comments';
 import { reactionsApi } from '../api/reactions';
 import type { Author, Comment, ReactionKind, ReactionSummary, Topic } from '../api/types';
-import { LanguageSelect, StatusChip, formatDate, useLanguage } from '../components/common';
+import { RichTextView, htmlToText } from '../components/RichText';
+import { LanguageSelect, StatusChip, formatDate, useLanguage, useSearch } from '../components/common';
 import { useFeedback } from '../components/feedback';
 
 const PAGE_SIZE = 50;
 
 function descriptionPreview(description: string): string {
-  const characters = Array.from(description.trim());
+  const characters = Array.from(htmlToText(description).trim());
   return characters.length > 80 ? `${characters.slice(0, 77).join('').trimEnd()}...` : characters.join('');
 }
 
@@ -79,11 +80,11 @@ export default function HomePage() {
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [topicReactions, setTopicReactions] = useState<Record<string, ReactionSummary>>({});
   const [commentReactions, setCommentReactions] = useState<Record<string, ReactionSummary>>({});
-  const [sortBy, setSortBy] = useState<'newest' | 'likes'>('newest');
   const [authors, setAuthors] = useState<Author[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const { language: langFilter } = useLanguage();
+  const { query } = useSearch();
   const { user } = useAuth();
   const [selected, setSelected] = useState<Topic | null>(null);
   const [loadingTopic, setLoadingTopic] = useState(false);
@@ -100,21 +101,15 @@ export default function HomePage() {
 
   const visibleTopics = useMemo(
     () =>
-      [...topics].sort((a, b) => {
-        if (sortBy === 'likes') {
-          const likeDifference = (topicReactions[b.id]?.likes ?? 0) - (topicReactions[a.id]?.likes ?? 0);
-          if (likeDifference) return likeDifference;
-        }
-        return Date.parse(b.created_at) - Date.parse(a.created_at);
-      }),
-    [topics, sortBy, topicReactions],
+      [...topics].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
+    [topics],
   );
 
   const loadTopics = useCallback(
     async (lang: string) => {
       setLoadingList(true);
       try {
-        const first = await topicsApi.list(PAGE_SIZE, 0, lang || undefined, 'published', sortBy);
+        const first = await topicsApi.list(PAGE_SIZE, 0, lang || undefined, 'published', 'newest', query || undefined);
         setTopics(first);
         setCommentCounts({});
         setTopicReactions({});
@@ -132,13 +127,13 @@ export default function HomePage() {
         setLoadingList(false);
       }
     },
-    [showError, sortBy],
+    [showError, query],
   );
 
   const loadMore = async () => {
     setLoadingList(true);
     try {
-      const next = await topicsApi.list(PAGE_SIZE, topics.length, langFilter || undefined, 'published', sortBy);
+      const next = await topicsApi.list(PAGE_SIZE, topics.length, langFilter || undefined, 'published', 'newest', query || undefined);
       setTopics((prev) => [...prev, ...next]);
       setHasMore(next.length === PAGE_SIZE);
       const nextIds = next.map((topic) => topic.id);
@@ -240,19 +235,6 @@ export default function HomePage() {
   return (
     <Box sx={{ display: 'flex', gap: 2, alignItems: 'stretch' }}>
       <Paper sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 140px)' }}>
-        <Box sx={{ p: 1 }}>
-          <TextField
-            select
-            fullWidth
-            size="small"
-            label="Order topics by"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as 'newest' | 'likes')}
-          >
-            <MenuItem value="newest">Date created</MenuItem>
-            <MenuItem value="likes">Like count</MenuItem>
-          </TextField>
-        </Box>
         <List dense sx={{ overflow: 'auto', flexGrow: 1 }}>
           {visibleTopics.map((topic) => (
             <ListItemButton
@@ -307,8 +289,8 @@ export default function HomePage() {
               </Typography>
             </Box>
             <Divider sx={{ mb: 2 }} />
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-              {selected.description}
+            <Typography variant="body1" component="div">
+              <RichTextView html={selected.description} />
             </Typography>
             <ReactionControls
               summary={topicReactions[selected.id]}
@@ -337,6 +319,11 @@ export default function HomePage() {
                   <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                     {comment.body}
                   </Typography>
+                  {comment.language !== 'en' && comment.body_en && (
+                    <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', fontStyle: 'italic', mt: 0.5 }}>
+                      English: {comment.body_en}
+                    </Typography>
+                  )}
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                     {authorNames.get(comment.author_id) ?? comment.author_id.slice(0, 8)} · {comment.language} ·{' '}
                     {formatDate(comment.created_at)}

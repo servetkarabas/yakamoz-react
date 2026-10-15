@@ -1,9 +1,12 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { AppBar, Container, IconButton, Tab, Tabs, Toolbar, Tooltip, Typography } from '@mui/material';
+import { useState } from 'react';
+import { AppBar, Container, IconButton, InputAdornment, Tab, Tabs, TextField, Toolbar, Tooltip } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import SearchIcon from '@mui/icons-material/Search';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { AuthProvider, hasTopicManagementRole, useAuth } from './components/auth';
-import { LanguageProvider, LanguageSwitcher } from './components/common';
+import { LanguageProvider, LanguageSwitcher, SearchProvider, useSearch } from './components/common';
 import HomePage from './pages/HomePage';
 import AuthorsPage from './pages/AuthorsPage';
 import LoginPage from './pages/LoginPage';
@@ -13,6 +16,9 @@ function Shell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { query, setQuery } = useSearch();
+  const [searchOpen, setSearchOpen] = useState(query !== '');
+  const [draft, setDraft] = useState(query);
   const canManageTopics = hasTopicManagementRole(user?.role);
   const isAdmin = location.pathname.startsWith('/admin') && canManageTopics;
   const adminTab = location.pathname.startsWith('/admin/authors') && user?.role === 'admin' ? '/admin/authors' : '/admin/topics';
@@ -21,9 +27,50 @@ function Shell() {
     <>
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" sx={{ mr: 4 }}>
-            Yakamoz
-          </Typography>
+          {searchOpen ? (
+            <TextField
+              autoFocus
+              size="small"
+              variant="outlined"
+              placeholder="Search topics"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setQuery(draft.trim());
+                  if (location.pathname !== '/' && !location.pathname.startsWith('/topic/')) navigate('/');
+                } else if (e.key === 'Escape') {
+                  setDraft('');
+                  setQuery('');
+                  setSearchOpen(false);
+                }
+              }}
+              sx={{ mr: 4, bgcolor: 'background.paper', borderRadius: 1, minWidth: 260 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      aria-label="Close search"
+                      onClick={() => {
+                        setDraft('');
+                        setQuery('');
+                        setSearchOpen(false);
+                      }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          ) : (
+            <Tooltip title="Search">
+              <IconButton color="inherit" aria-label="Search" onClick={() => setSearchOpen(true)} sx={{ mr: 4 }}>
+                <SearchIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           {canManageTopics && (
             <Tabs
               value={isAdmin ? '/admin' : false}
@@ -85,7 +132,9 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <LanguageProvider>
-          <Shell />
+          <SearchProvider>
+            <Shell />
+          </SearchProvider>
         </LanguageProvider>
       </AuthProvider>
     </BrowserRouter>
